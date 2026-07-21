@@ -1,0 +1,276 @@
+{
+  "name": "Live Review Intelligence Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-review",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1-webhook",
+      "name": "New Review Submitted",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "reviewText", "value": "={{ $json.body.reviewText }}", "type": "string" },
+            { "id": "a2", "name": "rating", "value": "={{ $json.body.rating }}", "type": "number" },
+            { "id": "a3", "name": "productName", "value": "={{ $json.body.productName }}", "type": "string" },
+            { "id": "a4", "name": "groqApiKey", "value": "PASTE_YOUR_GROQ_API_KEY_HERE", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n2-config",
+      "name": "Extract Review + Groq Key",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.groqApiKey }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"llama-3.3-70b-versatile\", temperature: 0.1, messages: [ { role: \"user\", content: \"Classify this ecommerce product review. Return ONLY a JSON object, no other text, in this exact shape: {\\\"sentiment\\\": \\\"positive\\\" or \\\"negative\\\" or \\\"neutral\\\", \\\"theme\\\": \\\"<one of: Sizing/Fit, Quality, Shipping, Price, Customer Service, Packaging, Other>\\\", \\\"confidence\\\": <0 to 1>}.\\n\\nReview: \" + $json.reviewText } ] }) }}",
+        "options": {}
+      },
+      "id": "n3-classify",
+      "name": "Classify Review (Groq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Extract Review + Groq Key').first().json;\nconst raw = $json.choices[0].message.content;\nlet parsed;\ntry {\n  const jsonMatch = raw.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);\n} catch (e) {\n  parsed = { sentiment: 'neutral', theme: 'Other', confidence: 0 };\n}\nreturn [{\n  json: {\n    Timestamp: new Date().toISOString(),\n    ProductName: original.productName || '',\n    ReviewText: original.reviewText,\n    Rating: original.rating,\n    Sentiment: parsed.sentiment || 'neutral',\n    Theme: parsed.theme || 'Other',\n    Confidence: parsed.confidence ?? 0,\n    groqApiKey: original.groqApiKey\n  }\n}];"
+      },
+      "id": "n4-parse-classification",
+      "name": "Parse Review Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_REVIEWS_LOG_SHEET_URL_HERE",
+          "mode": "list",
+          "cachedResultName": "Reviews Log"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "n5-log-review",
+      "name": "Log Review To Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_REVIEWS_LOG_SHEET_URL_HERE",
+          "mode": "list",
+          "cachedResultName": "Reviews Log"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "options": {}
+      },
+      "id": "n6-read-all",
+      "name": "Read All Reviews",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const reviews = $input.all().map(i => i.json);\nconst groqApiKey = $('Parse Review Classification').first().json.groqApiKey;\n\nconst byTheme = {};\nfor (const r of reviews) {\n  const theme = r.Theme || 'Other';\n  if (!byTheme[theme]) byTheme[theme] = { theme, count: 0, negativeCount: 0, examples: [] };\n  byTheme[theme].count += 1;\n  if (r.Sentiment === 'negative') byTheme[theme].negativeCount += 1;\n  if (byTheme[theme].examples.length < 2 && r.Sentiment === 'negative') byTheme[theme].examples.push(r.ReviewText);\n}\n\nconst totalCount = reviews.length;\nconst totalNegative = reviews.filter(r => r.Sentiment === 'negative').length || 1;\n\nconst ranked = Object.values(byTheme).map(t => ({\n  ...t,\n  negativeShare: Math.round((t.negativeCount / t.count) * 100) / 100,\n  priorityScore: Math.round(((t.count / totalCount) * 0.4 + (t.negativeCount / totalNegative) * 0.6) * 100) / 100\n})).sort((a, b) => b.priorityScore - a.priorityScore);\n\nreturn [{ json: { rankedThemes: ranked, groqApiKey, totalReviews: totalCount } }];"
+      },
+      "id": "n7-aggregate",
+      "name": "Aggregate Themes By Impact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.groqApiKey }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"llama-3.3-70b-versatile\", temperature: 0.3, messages: [ { role: \"user\", content: \"You are an ecommerce customer experience analyst. Below are the top review themes ranked by impact (volume plus share of negative sentiment). For EACH theme listed, write ONE concrete, specific corrective action -- no vague advice like monitor the situation or improve quality. Reference the theme name explicitly. Also write a 2-sentence executive summary.\\n\\nTHEMES:\\n\" + $json.rankedThemes.slice(0,3).map(t => t.theme + ' -- ' + t.count + ' reviews, ' + Math.round(t.negativeShare*100) + '% negative, priority score ' + t.priorityScore + '. Example complaints: ' + (t.examples.join(' | ') || 'none negative yet')).join('\\n') + \"\\n\\nReturn your answer in exactly this format:\\nSUMMARY: <executive summary>\\nRECOMMENDATION FOR <theme name>: <action>\\n(repeat the RECOMMENDATION FOR line once per theme listed above)\" } ] }) }}",
+        "options": {}
+      },
+      "id": "n8-recommend",
+      "name": "Generate Recommendations (Groq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rankedThemes = $('Aggregate Themes By Impact').first().json.rankedThemes;\nconst totalReviews = $('Aggregate Themes By Impact').first().json.totalReviews;\nconst raw = $json.choices[0].message.content;\n\nconst summaryMatch = raw.match(/SUMMARY:\\s*([\\s\\S]*?)(?=RECOMMENDATION FOR|$)/i);\nconst summary = summaryMatch ? summaryMatch[1].trim() : '';\n\nconst recMatches = [...raw.matchAll(/RECOMMENDATION FOR ([^:]+):\\s*([\\s\\S]*?)(?=RECOMMENDATION FOR|$)/gi)];\nconst recommendations = recMatches.map(m => ({ theme: m[1].trim(), action: m[2].trim() }));\n\nconst bannedPhrases = ['monitor the situation', 'no action needed', 'continue as is', 'keep an eye on', 'improve quality'];\nconst checks = [];\nconst topN = Math.min(3, rankedThemes.length);\nif (!summary) checks.push('missing executive summary');\nif (recommendations.length < topN) checks.push('fewer recommendations than top themes (' + recommendations.length + ' vs ' + topN + ')');\nfor (const r of recommendations) {\n  const lower = r.action.toLowerCase();\n  if (r.action.split(/\\s+/).length < 6) checks.push('recommendation for ' + r.theme + ' too short or vague');\n  for (const bp of bannedPhrases) {\n    if (lower.includes(bp)) checks.push('recommendation for ' + r.theme + ' uses a vague placeholder phrase');\n  }\n}\n\nconst verdict = checks.length ? 'FAIL' : 'PASS';\n\nreturn [{ json: { rankedThemes, totalReviews, summary, recommendations, verdict, failedChecks: checks } }];"
+      },
+      "id": "n9-parse-recs",
+      "name": "Parse and QA Recommendations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.verdict }}",
+              "rightValue": "PASS",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n10-if",
+      "name": "Passed QA?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1980, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const runDate = new Date().toISOString();\nreturn $json.rankedThemes.map(t => {\n  const rec = $json.recommendations.find(r => r.theme === t.theme);\n  return {\n    json: {\n      RunDate: runDate,\n      Status: 'READY',\n      Theme: t.theme,\n      Count: t.count,\n      NegativeSharePct: Math.round(t.negativeShare * 100),\n      PriorityScore: t.priorityScore,\n      Recommendation: rec ? rec.action : '',\n      Summary: $json.summary\n    }\n  };\n});"
+      },
+      "id": "n11-ready-rows",
+      "name": "Build Dashboard Rows (Ready)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const runDate = new Date().toISOString();\nreturn $json.rankedThemes.slice(0,3).map(t => ({\n  json: {\n    RunDate: runDate,\n    Status: 'NEEDS REVIEW',\n    Theme: t.theme,\n    Count: t.count,\n    NegativeSharePct: Math.round(t.negativeShare * 100),\n    PriorityScore: t.priorityScore,\n    Recommendation: 'QA flagged: ' + $json.failedChecks.join('; '),\n    Summary: $json.summary\n  }\n}));"
+      },
+      "id": "n12-flag-rows",
+      "name": "Build Dashboard Rows (Flagged)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 100]
+    },
+    {
+      "parameters": { "mode": "append", "options": {} },
+      "id": "n13-merge",
+      "name": "Merge Branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [2420, 0]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_DASHBOARD_SHEET_URL_HERE",
+          "mode": "list",
+          "cachedResultName": "Review Dashboard"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": ["Theme"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "n14-update-dashboard",
+      "name": "Update Live Dashboard",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2640, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: \"processed\", theme: $json.Theme } }}",
+        "options": {}
+      },
+      "id": "n15-respond",
+      "name": "Respond To Website",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.2,
+      "position": [2860, 0]
+    }
+  ],
+  "connections": {
+    "New Review Submitted": { "main": [[{ "node": "Extract Review + Groq Key", "type": "main", "index": 0 }]] },
+    "Extract Review + Groq Key": { "main": [[{ "node": "Classify Review (Groq)", "type": "main", "index": 0 }]] },
+    "Classify Review (Groq)": { "main": [[{ "node": "Parse Review Classification", "type": "main", "index": 0 }]] },
+    "Parse Review Classification": { "main": [[{ "node": "Log Review To Sheet", "type": "main", "index": 0 }]] },
+    "Log Review To Sheet": { "main": [[{ "node": "Read All Reviews", "type": "main", "index": 0 }]] },
+    "Read All Reviews": { "main": [[{ "node": "Aggregate Themes By Impact", "type": "main", "index": 0 }]] },
+    "Aggregate Themes By Impact": { "main": [[{ "node": "Generate Recommendations (Groq)", "type": "main", "index": 0 }]] },
+    "Generate Recommendations (Groq)": { "main": [[{ "node": "Parse and QA Recommendations", "type": "main", "index": 0 }]] },
+    "Parse and QA Recommendations": { "main": [[{ "node": "Passed QA?", "type": "main", "index": 0 }]] },
+    "Passed QA?": {
+      "main": [
+        [{ "node": "Build Dashboard Rows (Ready)", "type": "main", "index": 0 }],
+        [{ "node": "Build Dashboard Rows (Flagged)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Dashboard Rows (Ready)": { "main": [[{ "node": "Merge Branches", "type": "main", "index": 0 }]] },
+    "Build Dashboard Rows (Flagged)": { "main": [[{ "node": "Merge Branches", "type": "main", "index": 1 }]] },
+    "Merge Branches": { "main": [[{ "node": "Update Live Dashboard", "type": "main", "index": 0 }]] },
+    "Update Live Dashboard": { "main": [[{ "node": "Respond To Website", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "instanceId": "live-review-pipeline-v1" }
+}

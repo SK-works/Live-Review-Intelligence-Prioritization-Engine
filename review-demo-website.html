@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aurora Home — Product Reviews (Live Demo)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; background: #faf9f7; color: #2a2a2a; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #777; font-size: 14px; margin-bottom: 24px; }
+  .config { background: #fff; border: 1px solid #e5e2dd; border-radius: 8px; padding: 16px; margin-bottom: 24px; }
+  .config label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 6px; }
+  .config input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; box-sizing: border-box; }
+  .card { background: #fff; border: 1px solid #e5e2dd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  textarea { width: 100%; min-height: 70px; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; box-sizing: border-box; font-family: inherit; }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  select, button { padding: 8px 14px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; cursor: pointer; background: #fff; }
+  button.primary { background: #1a1a1a; color: white; border: none; }
+  button.auto { background: #2f6f4f; color: white; border: none; }
+  button.auto.stop { background: #a33; }
+  #feed { margin-top: 10px; }
+  .review { border-bottom: 1px solid #eee; padding: 10px 0; font-size: 13px; }
+  .review .meta { color: #999; display: flex; justify-content: space-between; }
+  .status-ok { color: #2f6f4f; font-weight: 600; }
+  .status-pending { color: #b8860b; }
+  .status-err { color: #a33; }
+</style>
+</head>
+<body>
+
+<h1>Aurora Home — Ceramic Pour-Over Coffee Set</h1>
+<div class="sub">Demo storefront review widget — every submission fires live to your n8n pipeline.</div>
+
+<div class="config">
+  <label>Your n8n Webhook URL (from the "New Review Submitted" node — copy the Test or Production URL)</label>
+  <input id="webhookUrl" type="text" placeholder="http://localhost:5678/webhook/new-review" />
+</div>
+
+<div class="card">
+  <label style="font-size:13px; font-weight:600;">Write a review</label>
+  <textarea id="reviewText" placeholder="e.g. The filter clogs constantly and the handle chipped on day two."></textarea>
+  <div class="row">
+    <select id="rating">
+      <option value="5">5 stars</option>
+      <option value="4">4 stars</option>
+      <option value="3">3 stars</option>
+      <option value="2" selected>2 stars</option>
+      <option value="1">1 star</option>
+    </select>
+    <button class="primary" onclick="submitReview()">Submit Review</button>
+    <button id="autoBtn" class="auto" onclick="toggleAuto()">Start Live Simulation</button>
+  </div>
+</div>
+
+<div class="card">
+  <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Live feed</div>
+  <div id="feed"></div>
+</div>
+
+<script>
+const sampleReviews = [
+  { text: "Filter is way too small, coffee grounds leak through every time.", rating: 2 },
+  { text: "Beautiful matte finish, exactly as pictured. Love it.", rating: 5 },
+  { text: "Handle cracked after one week of normal use.", rating: 1 },
+  { text: "Shipping took over two weeks, box also arrived dented.", rating: 2 },
+  { text: "Great gift, my mom uses it every morning now.", rating: 5 },
+  { text: "Way more expensive than similar sets, not worth the price.", rating: 2 },
+  { text: "Customer service took 3 emails to respond to my broken lid.", rating: 1 },
+  { text: "Dishwasher safe claim is false, the glaze is fading already.", rating: 2 },
+  { text: "Perfect size for one cup, sturdy and easy to clean.", rating: 5 },
+  { text: "Packaging was crushed but the product itself was fine.", rating: 3 },
+  { text: "Support was fast and kind when I asked about the warranty.", rating: 5 },
+  { text: "The steel filter rusted within a month, disappointing quality.", rating: 1 },
+];
+
+let autoTimer = null;
+
+function addFeedItem(text, rating, status) {
+  const feed = document.getElementById('feed');
+  const div = document.createElement('div');
+  div.className = 'review';
+  div.innerHTML = `<div>${text}</div><div class="meta"><span>${rating}★</span><span class="${status.cls}">${status.label}</span></div>`;
+  feed.prepend(div);
+}
+
+async function sendToWebhook(reviewText, rating) {
+  const url = document.getElementById('webhookUrl').value.trim();
+  if (!url) {
+    addFeedItem(reviewText, rating, { cls: 'status-err', label: 'No webhook URL set' });
+    return;
+  }
+  const itemDiv = document.createElement('div');
+  addFeedItem(reviewText, rating, { cls: 'status-pending', label: 'Sending...' });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewText, rating, productName: 'Aurora Ceramic Pour-Over Coffee Set' })
+    });
+    if (res.ok) {
+      addFeedItem(reviewText, rating, { cls: 'status-ok', label: '✓ sent to pipeline' });
+    } else {
+      addFeedItem(reviewText, rating, { cls: 'status-err', label: 'Error: HTTP ' + res.status });
+    }
+  } catch (e) {
+    addFeedItem(reviewText, rating, { cls: 'status-err', label: 'Failed: ' + e.message });
+  }
+}
+
+function submitReview() {
+  const text = document.getElementById('reviewText').value.trim();
+  const rating = document.getElementById('rating').value;
+  if (!text) return;
+  sendToWebhook(text, rating);
+  document.getElementById('reviewText').value = '';
+}
+
+function toggleAuto() {
+  const btn = document.getElementById('autoBtn');
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+    btn.textContent = 'Start Live Simulation';
+    btn.classList.remove('stop');
+  } else {
+    btn.textContent = 'Stop Live Simulation';
+    btn.classList.add('stop');
+    autoTimer = setInterval(() => {
+      const r = sampleReviews[Math.floor(Math.random() * sampleReviews.length)];
+      sendToWebhook(r.text, r.rating);
+    }, 4000);
+  }
+}
+</script>
+
+</body>
+</html>
