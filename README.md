@@ -6,6 +6,8 @@ Built with **n8n**, **Groq (Llama 3.3 70B, free tier)**, and **Google Sheets**. 
 
 [![Architecture](./architecture-diagram.svg)](https://claude.ai/public/artifacts/652895e9-7ff3-4323-826e-293f9f7dc1a0)
 
+📄 Full write-up (problem framing, design rationale, what I'd build next): Notion case study — also included in this repo as LRIPE-CASE-STUDY.md.
+
 ## What it does
 
 1. A review is submitted (from the included demo storefront, or any system that can POST JSON)
