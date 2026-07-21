@@ -56,4 +56,5 @@ In short: **Website → Webhook → Classify → Log → Re-rank entire history 
 
 ## Try it
 
-Full workflow file, demo website, and setup instructions are in the accompanying GitHub repo — linked from my portfolio.
+Full workflow file, demo website, and setup instructions are in the accompanying GitHub repo.
+
