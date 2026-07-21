@@ -4,7 +4,7 @@ A real-time automation that turns incoming customer reviews into ranked, actiona
 
 Built with **n8n**, **Groq (Llama 3.3 70B, free tier)**, and **Google Sheets**. Zero paid infrastructure.
 
-![Architecture](./architecture-diagram.svg)
+[![Architecture](./architecture-diagram.svg)](https://claude.ai/public/artifacts/652895e9-7ff3-4323-826e-293f9f7dc1a0)
 
 ## What it does
 
