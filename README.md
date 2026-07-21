@@ -6,7 +6,7 @@ Built with **n8n**, **Groq (Llama 3.3 70B, free tier)**, and **Google Sheets**. 
 
 [![Architecture](./architecture-diagram.svg)](https://claude.ai/public/artifacts/652895e9-7ff3-4323-826e-293f9f7dc1a0)
 
-📄 **Full write-up (problem framing, design rationale, what I'd build next):** [Notion Link]([https://app.notion.com/p/Case-Study-Live-Return-Intelligence-Prioritisation-Engine-ba6b2fef471b4b418547d0682fcdcb56?source=copy_link](https://kind-horse-076.notion.site/Live-Return-Intelligence-Prioritisation-Engine-ba6b2fef471b4b418547d0682fcdcb56)) 
+📄 **Full write-up (problem framing, design rationale, what I'd build next):** [Notion Link]([https://app.notion.com/p/Case-Study-Live-Return-Intelligence-Prioritisation-Engine-ba6b2fef471b4b418547d0682fcdcb56?source=copy_link](https://kind-horse-076.notion.site/Live-Return-Intelligence-Prioritisation-Engine-ba6b2fef471b4b418547d0682fcdcb56)]) 
 
 Also included in this repo is the case study stored as `LRIPE-CASE-STUDY.md`.
 
